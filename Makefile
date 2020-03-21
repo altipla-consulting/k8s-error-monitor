@@ -16,6 +16,7 @@ ifndef tag
 endif
 	docker-compose build
 	docker tag altipla/k8s-error-monitor:latest altipla/k8s-error-monitor:$(tag)
-	docker-compose push
+	docker push altipla/k8s-error-monitor:$(tag)
+	docker push altipla/k8s-error-monitor:latest
 	git tag $(tag)
 	git push origin --tags
