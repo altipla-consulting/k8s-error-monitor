@@ -1,2 +1,4 @@
+
 # k8s-error-monitor
-Kubernetes error monitor logging to Sentry.
+
+Kubernetes error monitor that sends logs to Sentry.
