@@ -1,0 +1,8 @@
+
+version: '3.7'
+
+services:
+  k8s-error-monitor:
+    image: altipla/k8s-error-monitor:latest
+    build:
+      context: .
