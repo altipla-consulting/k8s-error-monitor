@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -130,6 +131,10 @@ func (w *watcher) handleEvent(obj interface{}) error {
 		return nil
 	}
 
+	if shouldDiscard(kevent) {
+		return nil
+	}
+
 	event := sentry.NewEvent()
 	event.Platform = "other"
 	event.Environment = w.env
@@ -226,4 +231,12 @@ func fingerprintFromMeta(resource metav1.ObjectMeta) []string {
 		resource.Namespace,
 		string(resource.UID),
 	}
+}
+
+func shouldDiscard(kevent *v1.Event) bool {
+	if strings.HasSuffix(kevent.Message, "Volume is already exclusively attached to one node and can't be attached to another") {
+		return true
+	}
+
+	return false
 }
