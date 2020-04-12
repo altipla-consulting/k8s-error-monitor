@@ -14,6 +14,7 @@ import (
 	flag "github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
@@ -159,27 +160,10 @@ func (w *watcher) handleEvent(obj interface{}) error {
 	}
 	event.Extra["count"] = kevent.Count
 
-	event.Fingerprint = []string{
-		kevent.Source.Component,
-		kevent.Type,
-		kevent.Reason,
-		kevent.Message,
-	}
-	if kevent.InvolvedObject.APIVersion == "v1" && kevent.InvolvedObject.Kind == "Pod" {
-		pod, err := w.k.CoreV1().Pods(kevent.Namespace).Get(kevent.InvolvedObject.Name, metav1.GetOptions{
-			ResourceVersion: kevent.InvolvedObject.ResourceVersion,
-		})
-		if err != nil {
-			return errors.Trace(err)
-		}
-		event.Fingerprint = append(event.Fingerprint, fingerprintFromMeta(pod.ObjectMeta)...)
-	} else {
-		event.Fingerprint = append(event.Fingerprint,
-			kevent.InvolvedObject.APIVersion,
-			kevent.InvolvedObject.Kind,
-			kevent.InvolvedObject.Namespace,
-			kevent.InvolvedObject.Name,
-			kevent.InvolvedObject.FieldPath)
+	var err error
+	event.Fingerprint, err = w.fingerprint(kevent)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	fields := log.Fields{
@@ -199,6 +183,37 @@ func (w *watcher) handleEvent(obj interface{}) error {
 	log.WithField("event-id", eventID).Info("Error sent to Sentry")
 
 	return nil
+}
+
+func (w *watcher) fingerprint(kevent *v1.Event) ([]string, error) {
+	fp := []string{
+		kevent.Source.Component,
+		kevent.Type,
+		kevent.Reason,
+		kevent.Message,
+	}
+	if kevent.InvolvedObject.APIVersion == "v1" && kevent.InvolvedObject.Kind == "Pod" {
+		pod, err := w.k.CoreV1().Pods(kevent.Namespace).Get(kevent.InvolvedObject.Name, metav1.GetOptions{
+			ResourceVersion: kevent.InvolvedObject.ResourceVersion,
+		})
+		if err != nil {
+			status := new(k8serrors.StatusError)
+			if !errors.As(err, &status) || status.ErrStatus.Reason != "NotFound" {
+				return nil, errors.Trace(err)
+			}
+		} else {
+			fp = append(fp, fingerprintFromMeta(pod.ObjectMeta)...)
+			return fp, nil
+		}
+	}
+
+	fp = append(fp,
+		kevent.InvolvedObject.APIVersion,
+		kevent.InvolvedObject.Kind,
+		kevent.InvolvedObject.Namespace,
+		kevent.InvolvedObject.Name,
+		kevent.InvolvedObject.FieldPath)
+	return fp, nil
 }
 
 func getSentryLevel(kevent *v1.Event) sentry.Level {
@@ -238,6 +253,9 @@ func shouldDiscard(kevent *v1.Event) bool {
 		return true
 	}
 	if strings.Contains(kevent.Message, "Failed to update endpoint") && strings.HasSuffix(kevent.Message, "the object has been modified; please apply your changes to the latest version and try again") {
+		return true
+	}
+	if strings.Contains(kevent.Message, "Liveness probe failed") {
 		return true
 	}
 
