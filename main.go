@@ -237,6 +237,9 @@ func shouldDiscard(kevent *v1.Event) bool {
 	if strings.HasSuffix(kevent.Message, "Volume is already exclusively attached to one node and can't be attached to another") {
 		return true
 	}
+	if strings.Contains(kevent.Message, "Failed to update endpoint") && strings.HasSuffix(kevent.Message, "the object has been modified; please apply your changes to the latest version and try again") {
+		return true
+	}
 
 	return false
 }
