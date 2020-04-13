@@ -141,7 +141,13 @@ func (w *watcher) handleEvent(obj interface{}) error {
 	event.Environment = w.env
 	event.Timestamp = kevent.ObjectMeta.CreationTimestamp.Unix()
 	event.Level = getSentryLevel(kevent)
-	event.Message = fmt.Sprintf("%s/%s: %s", kevent.InvolvedObject.Kind, kevent.InvolvedObject.Name, kevent.Message)
+	event.Message = kevent.Message
+	event.Exception = []sentry.Exception{
+		{
+			Type:  kevent.Message,
+			Value: fmt.Sprintf("(%s/%s) %s", strings.ToLower(kevent.InvolvedObject.Kind), kevent.InvolvedObject.Name, kevent.Reason),
+		},
+	}
 
 	event.Tags["namespace"] = kevent.InvolvedObject.Namespace
 	event.Tags["component"] = kevent.Source.Component
@@ -159,6 +165,7 @@ func (w *watcher) handleEvent(obj interface{}) error {
 		event.Extra["action"] = kevent.Action
 	}
 	event.Extra["count"] = kevent.Count
+	event.Extra["involved_object"] = kevent.InvolvedObject
 
 	var err error
 	event.Fingerprint, err = w.fingerprint(kevent)
@@ -249,12 +256,19 @@ func fingerprintFromMeta(resource metav1.ObjectMeta) []string {
 }
 
 func shouldDiscard(kevent *v1.Event) bool {
+	// Esto ocurre mientras se mueve el volumen de una máquina a otra durante
+	// un funcionamiento normal. Kubernetes reintentará el movimiento en unos segundos.
 	if strings.HasSuffix(kevent.Message, "Volume is already exclusively attached to one node and can't be attached to another") {
 		return true
 	}
-	if strings.Contains(kevent.Message, "Failed to update endpoint") && strings.HasSuffix(kevent.Message, "the object has been modified; please apply your changes to the latest version and try again") {
+
+	// Kubernetes reintentará mas tarde sin problemas.
+	if kevent.Reason == "FailedToUpdateEndpoint" {
 		return true
 	}
+
+	// Esto ocurre mientras se reinician los pods en un funcionamiento normal para
+	// sustituirse por los de la nueva versión.
 	if strings.Contains(kevent.Message, "Liveness probe failed") {
 		return true
 	}
