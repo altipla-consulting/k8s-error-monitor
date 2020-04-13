@@ -14,4 +14,4 @@ RUN apt-get update && \
 WORKDIR /opt/ac
 COPY --from=builder /workspace/k8s-error-monitor .
 
-CMD ["/opt/ac/k8s-error-monitor"]
+ENTRYPOINT ["/opt/ac/k8s-error-monitor"]
